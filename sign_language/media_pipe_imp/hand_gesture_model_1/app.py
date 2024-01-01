@@ -40,7 +40,7 @@ def get_args():
 #python script.py --width 1280 --height 720 --use_static_image_mode
 
 def main():
-    # Argument parsing #################################################################
+    # Argument parsing // if none given takes the default
     args = get_args()
 
     cap_device = args.device
@@ -52,16 +52,18 @@ def main():
     min_tracking_confidence = args.min_tracking_confidence
 
     use_brect = True
+    #an option for choosing the need of a bounding box
 
-    # Camera preparation ###############################################################
+    # Camera preparation 
     cap = cv2.VideoCapture(cap_device)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, cap_width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cap_height)
 
-    # Model load #############################################################
+    # Model load of mediapipe
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(
         static_image_mode=use_static_image_mode,
+        #use_static_image_mode is True, the model may optimize for static images rather than a continuous stream of frames.
         max_num_hands=2,
         min_detection_confidence=min_detection_confidence,
         min_tracking_confidence=min_tracking_confidence,
@@ -74,40 +76,45 @@ def main():
 
     point_history_classifier = PointHistoryClassifier()
 
-    # Read labels ###########################################################
+    # Read labels in the created models for classification process
     with open('model/keypoint_classifier/keypoint_classifier_label.csv',
               encoding='utf-8-sig') as f:
         keypoint_classifier_labels = csv.reader(f)
         keypoint_classifier_labels = [
-            row[0] for row in keypoint_classifier_labels
+            str(row[0]) for row in keypoint_classifier_labels if row!= None
         ]
     with open(
             'model/point_history_classifier/point_history_classifier_label.csv',
             encoding='utf-8-sig') as f:
         point_history_classifier_labels = csv.reader(f)
         point_history_classifier_labels = [
-            row[0] for row in point_history_classifier_labels
+            str(row[0]) for row in point_history_classifier_labels if row!=None
         ]
 
-    # FPS Measurement ########################################################
+    # FPS Measurement------------------------------------------------
     cvFpsCalc = CvFpsCalc(buffer_len=10)
+    #buffer to smooth out FPS calculations, especially if you want to display 
+    #an average FPS over a certain number of frames rather than the instantaneous FPS.
 
-    # Coordinate history #################################################################
+    # Coordinate history ----------------------------------------------------
     history_length = 16
     point_history = deque(maxlen=history_length)
 
+    #deque is part of the collections module in Python and provides a versatile data structure.
+    #Double ended queue
+
     # Finger gesture history ################################################
     finger_gesture_history = deque(maxlen=history_length)
-
-    #  ########################################################################
-    mode = 0
+    #This deque will be used to store historical information about hand landmarks or points,
+    # and it will automatically discard the oldest elements once the specified maximum length is reached.
+    mode = 0 #default
 
     while True:
         fps = cvFpsCalc.get()
 
-        # Process Key (ESC: end) #################################################
+        # Process Key (ESC: end)
         key = cv2.waitKey(10)
-        if key == 27:  # ESC
+        if key == 27 or key==ord('q'):  # ESC,q
             break
         number, mode = select_mode(key, mode)
 
@@ -117,8 +124,10 @@ def main():
             break
         image = cv2.flip(image, 1)  # Mirror display
         debug_image = copy.deepcopy(image)
+        '''
+        In Python, you can create a deep copy of an image using the copy module or by using NumPy's copy function. A deep copy 
+        creates a new object that is a copy of the original object, and it recursively copies all nested objects within it.'''
 
-        # Detection implementation #############################################################
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         # rgb as input to mediapipe
 
@@ -133,8 +142,13 @@ def main():
         if results.multi_hand_landmarks is not None:
             #results.mul_hand_landmarks gives us x:position in the x axis,y axis,depth from the camera as the coordinates opt
             #looping through each of the results
+            #This condition checks if there are hand landmarks detected in the current frame (results). If hands are detected, the code proceeds to process the hand landmarks.
             for hand_landmarks, handedness in zip(results.multi_hand_landmarks,
                                                   results.multi_handedness):
+                
+                
+                #Handedness refers to whether a detected hand is the left hand or the right hand. It is essential to distinguish between left and right hands,
+                # especially in applications where specific gestures or actions depend on the hand's orientation
                 # Bounding box calculation
                 brect = calc_bounding_rect(debug_image, hand_landmarks)
                 # Landmark calculation
@@ -211,6 +225,7 @@ def calc_bounding_rect(image, landmarks):
 
     for _, landmark in enumerate(landmarks.landmark):
         landmark_x = min(int(landmark.x * image_width), image_width - 1)
+        #TO just make sure the point doesnot fall outside of the frame
         landmark_y = min(int(landmark.y * image_height), image_height - 1)
 
         landmark_point = [np.array((landmark_x, landmark_y))]
@@ -218,7 +233,9 @@ def calc_bounding_rect(image, landmarks):
         landmark_array = np.append(landmark_array, landmark_point, axis=0)
 
     x, y, w, h = cv2.boundingRect(landmark_array)
+    #x, y, w, h = cv2.boundingRect(landmark_array): Calculates the bounding rectangle (x, y, width, height) around the set of landmarks using the cv2.boundingRect function.
 
+    #The function returns the bounding rectangle coordinates as [x, y, x + w, y + h].
     return [x, y, x + w, y + h]
 
 
@@ -289,6 +306,7 @@ def pre_process_point_history(image, point_history):
 
 
 def logging_csv(number, mode, landmark_list, point_history_list):
+    #ADDING THE DATASET COORDINATES
     if mode == 0:
         pass
     if mode == 1 and (0 <= number <= 9):
@@ -305,44 +323,57 @@ def logging_csv(number, mode, landmark_list, point_history_list):
 
 
 def draw_landmarks(image, landmark_point):
+
+    # Sketching the design plan:
+
     if len(landmark_point) > 0:
+        #To check if it actually exists
         # Thumb
         cv2.line(image, tuple(landmark_point[2]), tuple(landmark_point[3]),
-                (0, 0, 0), 6)
+                (0, 0, 0), 6) #6 is the thickness of line in pixels
         cv2.line(image, tuple(landmark_point[2]), tuple(landmark_point[3]),
                 (255, 255, 255), 2)
+        #Atempting to get white line with black borders
+        #Thumb line1
         cv2.line(image, tuple(landmark_point[3]), tuple(landmark_point[4]),
                 (0, 0, 0), 6)
         cv2.line(image, tuple(landmark_point[3]), tuple(landmark_point[4]),
                 (255, 255, 255), 2)
+        #Top of that thumb line 2
 
         # Index finger
         cv2.line(image, tuple(landmark_point[5]), tuple(landmark_point[6]),
                 (0, 0, 0), 6)
         cv2.line(image, tuple(landmark_point[5]), tuple(landmark_point[6]),
                 (255, 255, 255), 2)
+        # Index line 1
         cv2.line(image, tuple(landmark_point[6]), tuple(landmark_point[7]),
                 (0, 0, 0), 6)
         cv2.line(image, tuple(landmark_point[6]), tuple(landmark_point[7]),
                 (255, 255, 255), 2)
+        # Index line 2 on top of that
         cv2.line(image, tuple(landmark_point[7]), tuple(landmark_point[8]),
                 (0, 0, 0), 6)
         cv2.line(image, tuple(landmark_point[7]), tuple(landmark_point[8]),
                 (255, 255, 255), 2)
+        # Index line 3 on top of that as well
 
         # Middle finger
         cv2.line(image, tuple(landmark_point[9]), tuple(landmark_point[10]),
                 (0, 0, 0), 6)
         cv2.line(image, tuple(landmark_point[9]), tuple(landmark_point[10]),
                 (255, 255, 255), 2)
+        #middle line 1
         cv2.line(image, tuple(landmark_point[10]), tuple(landmark_point[11]),
                 (0, 0, 0), 6)
         cv2.line(image, tuple(landmark_point[10]), tuple(landmark_point[11]),
                 (255, 255, 255), 2)
+        #middle line 2 on top of that
         cv2.line(image, tuple(landmark_point[11]), tuple(landmark_point[12]),
                 (0, 0, 0), 6)
         cv2.line(image, tuple(landmark_point[11]), tuple(landmark_point[12]),
                 (255, 255, 255), 2)
+        #middle line 3 on top of that as well
 
         # Ring finger
         cv2.line(image, tuple(landmark_point[13]), tuple(landmark_point[14]),
@@ -404,96 +435,98 @@ def draw_landmarks(image, landmark_point):
 
     # Key Points
     for index, landmark in enumerate(landmark_point):
-        if index == 0:  # 手首1
+        if index == 0:  #Wrist
+            cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
+                      -1) #completefill
+            cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
+        if index == 1:  #Thumb cmc
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 1:  # 手首2
+        if index == 2:  # Thumb mcp
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 2:  # 親指：付け根
+        if index == 3:  # Thumb ip
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 3:  # 親指：第1関節
-            cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
-                      -1)
-            cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 4:  # 親指：指先
+        if index == 4:  # Thumb tip
             cv2.circle(image, (landmark[0], landmark[1]), 8, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 8, (0, 0, 0), 1)
-        if index == 5:  # 人差指：付け根
+        if index == 5:  # Index mcp
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 6:  # 人差指：第2関節
+        if index == 6:  # index pip
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 7:  # 人差指：第1関節
+        if index == 7:  # index dip
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 8:  # 人差指：指先
+        if index == 8:  # index tip
             cv2.circle(image, (landmark[0], landmark[1]), 8, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 8, (0, 0, 0), 1)
-        if index == 9:  # 中指：付け根
+        if index == 9:  # middle mcp
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 10:  # 中指：第2関節
+        if index == 10:  # middle pip
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 11:  # 中指：第1関節
+        if index == 11:  # middle dip
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 12:  # 中指：指先
+        if index == 12:  # middle tip
             cv2.circle(image, (landmark[0], landmark[1]), 8, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 8, (0, 0, 0), 1)
-        if index == 13:  # 薬指：付け根
+        if index == 13:  # ring mcp
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 14:  # 薬指：第2関節
+        if index == 14:  # ring pip
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 15:  # 薬指：第1関節
+        if index == 15:  # ring dip
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 16:  # 薬指：指先
+        if index == 16:  # ring tip
             cv2.circle(image, (landmark[0], landmark[1]), 8, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 8, (0, 0, 0), 1)
-        if index == 17:  # 小指：付け根
+        if index == 17:  # little mcp
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 18:  # 小指：第2関節
+        if index == 18:  # little pip
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 19:  # 小指：第1関節
+        if index == 19:  # little dip
             cv2.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 5, (0, 0, 0), 1)
-        if index == 20:  # 小指：指先
+        if index == 20:  # little tip
             cv2.circle(image, (landmark[0], landmark[1]), 8, (255, 255, 255),
                       -1)
             cv2.circle(image, (landmark[0], landmark[1]), 8, (0, 0, 0), 1)
 
     return image
+#RGB values (e.g., white is (255, 255, 255), and black is (0, 0, 0)).
 
 
 def draw_bounding_rect(use_brect, image, brect):
     if use_brect:
+        #Checking the truth condition
         # Outer rectangle
         cv2.rectangle(image, (brect[0], brect[1]), (brect[2], brect[3]),
                      (0, 0, 0), 1)
@@ -534,15 +567,17 @@ def draw_point_history(image, point_history):
 def draw_info(image, fps, mode, number):
     cv2.putText(image, "FPS:" + str(fps), (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                1.0, (0, 0, 0), 4, cv2.LINE_AA)
+    #cv2.LINE_AA stands for anti-aliased line, which helps in rendering smoother text
+    #1.0 font scale factor
     cv2.putText(image, "FPS:" + str(fps), (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                1.0, (255, 255, 255), 2, cv2.LINE_AA)
 
     mode_string = ['Logging Key Point', 'Logging Point History']
-    if 1 <= mode <= 2:
+    if 1 <= mode <= 101:
         cv2.putText(image, "MODE:" + mode_string[mode - 1], (10, 90),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1,
                    cv2.LINE_AA)
-        if 0 <= number <= 9:
+        if 0 <= number <= 100:
             cv2.putText(image, "NUM:" + str(number), (10, 110),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1,
                        cv2.LINE_AA)
